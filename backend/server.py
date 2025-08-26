@@ -73,6 +73,7 @@ class Member(BaseModel):
     name: str
     category: str  # Adult or Kid
     team_id: str
+    individual_points: int = 0
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class Event(BaseModel):
@@ -80,13 +81,18 @@ class Event(BaseModel):
     name: str
     description: str
     event_date: datetime
+    category: str  # Adult, Kid, or Mixed
+    event_type: str  # Team or Individual
+    is_completed: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class Result(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     event_id: str
-    winner_team_id: str
+    winner_team_id: Optional[str] = None
     runner_up_team_id: Optional[str] = None
+    winner_member_id: Optional[str] = None
+    runner_up_member_id: Optional[str] = None
     winner_points: int = 10
     runner_up_points: int = 5
     remarks: Optional[str] = None
@@ -164,19 +170,12 @@ async def login(admin_data: AdminLogin):
     access_token = create_access_token(data={"sub": admin_data.username})
     return {"access_token": access_token, "token_type": "bearer"}
 
-# Team endpoints
+# Public endpoints (no auth required)
 @api_router.get("/teams", response_model=List[Team])
 async def get_teams():
     teams = await db.teams.find().to_list(length=None)
     return [Team(**parse_from_mongo(team)) for team in teams]
 
-@api_router.post("/teams", response_model=Team)
-async def create_team(team_data: Team, current_admin: str = Depends(get_current_admin)):
-    team_dict = prepare_for_mongo(team_data.dict())
-    await db.teams.insert_one(team_dict)
-    return team_data
-
-# Member endpoints
 @api_router.get("/members", response_model=List[Member])
 async def get_members():
     members = await db.members.find().to_list(length=None)
@@ -186,6 +185,50 @@ async def get_members():
 async def get_members_by_team(team_id: str):
     members = await db.members.find({"team_id": team_id}).to_list(length=None)
     return [Member(**parse_from_mongo(member)) for member in members]
+
+@api_router.get("/events", response_model=List[Event])
+async def get_events():
+    events = await db.events.find().sort("event_date", 1).to_list(length=None)
+    return [Event(**parse_from_mongo(event)) for event in events]
+
+@api_router.get("/results", response_model=List[Result])
+async def get_results():
+    results = await db.results.find().to_list(length=None)
+    return [Result(**parse_from_mongo(result)) for result in results]
+
+@api_router.get("/scoreboard")
+async def get_scoreboard():
+    teams = await db.teams.find().sort("total_points", -1).to_list(length=None)
+    return [{"id": team["id"], "name": team["name"], "color": team["color"], "total_points": team["total_points"]} for team in teams]
+
+@api_router.get("/individual-rankings")
+async def get_individual_rankings():
+    members = await db.members.find().to_list(length=None)
+    
+    adults = [m for m in members if m["category"] == "Adult"]
+    kids = [m for m in members if m["category"] == "Kid"]
+    
+    adults.sort(key=lambda x: x.get("individual_points", 0), reverse=True)
+    kids.sort(key=lambda x: x.get("individual_points", 0), reverse=True)
+    
+    return {
+        "adults": adults,
+        "kids": kids
+    }
+
+@api_router.get("/points-config", response_model=PointsConfig)
+async def get_points_config():
+    config = await db.points_config.find_one({})
+    if not config:
+        return PointsConfig()
+    return PointsConfig(**config)
+
+# Admin-only endpoints
+@api_router.post("/teams", response_model=Team)
+async def create_team(team_data: Team, current_admin: str = Depends(get_current_admin)):
+    team_dict = prepare_for_mongo(team_data.dict())
+    await db.teams.insert_one(team_dict)
+    return team_data
 
 @api_router.post("/members", response_model=Member)
 async def create_member(member_data: Member, current_admin: str = Depends(get_current_admin)):
@@ -199,12 +242,6 @@ async def delete_member(member_id: str, current_admin: str = Depends(get_current
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Member not found")
     return {"message": "Member deleted successfully"}
-
-# Event endpoints
-@api_router.get("/events", response_model=List[Event])
-async def get_events():
-    events = await db.events.find().sort("event_date", 1).to_list(length=None)
-    return [Event(**parse_from_mongo(event)) for event in events]
 
 @api_router.post("/events", response_model=Event)
 async def create_event(event_data: Event, current_admin: str = Depends(get_current_admin)):
@@ -227,48 +264,54 @@ async def delete_event(event_id: str, current_admin: str = Depends(get_current_a
         raise HTTPException(status_code=404, detail="Event not found")
     return {"message": "Event deleted successfully"}
 
-# Results endpoints
-@api_router.get("/results", response_model=List[Result])
-async def get_results():
-    results = await db.results.find().to_list(length=None)
-    return [Result(**parse_from_mongo(result)) for result in results]
-
 @api_router.post("/results", response_model=Result)
 async def create_result(result_data: Result, current_admin: str = Depends(get_current_admin)):
-    # Update team points
-    await db.teams.update_one(
-        {"id": result_data.winner_team_id},
-        {"$inc": {"total_points": result_data.winner_points}}
-    )
+    # Update points based on event type
+    event = await db.events.find_one({"id": result_data.event_id})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
     
-    if result_data.runner_up_team_id:
-        await db.teams.update_one(
-            {"id": result_data.runner_up_team_id},
-            {"$inc": {"total_points": result_data.runner_up_points}}
-        )
+    if event["event_type"] == "Team":
+        # Update team points
+        if result_data.winner_team_id:
+            await db.teams.update_one(
+                {"id": result_data.winner_team_id},
+                {"$inc": {"total_points": result_data.winner_points}}
+            )
+        
+        if result_data.runner_up_team_id:
+            await db.teams.update_one(
+                {"id": result_data.runner_up_team_id},
+                {"$inc": {"total_points": result_data.runner_up_points}}
+            )
+    else:
+        # Update individual member points
+        if result_data.winner_member_id:
+            await db.members.update_one(
+                {"id": result_data.winner_member_id},
+                {"$inc": {"individual_points": result_data.winner_points}}
+            )
+        
+        if result_data.runner_up_member_id:
+            await db.members.update_one(
+                {"id": result_data.runner_up_member_id},
+                {"$inc": {"individual_points": result_data.runner_up_points}}
+            )
+    
+    # Mark event as completed
+    await db.events.update_one(
+        {"id": result_data.event_id},
+        {"$set": {"is_completed": True}}
+    )
     
     result_dict = prepare_for_mongo(result_data.dict())
     await db.results.insert_one(result_dict)
     return result_data
 
-# Points config endpoints
-@api_router.get("/points-config", response_model=PointsConfig)
-async def get_points_config():
-    config = await db.points_config.find_one({})
-    if not config:
-        return PointsConfig()
-    return PointsConfig(**config)
-
 @api_router.put("/points-config", response_model=PointsConfig)
 async def update_points_config(config_data: PointsConfig, current_admin: str = Depends(get_current_admin)):
     await db.points_config.replace_one({}, config_data.dict(), upsert=True)
     return config_data
-
-# Scoreboard endpoint
-@api_router.get("/scoreboard")
-async def get_scoreboard():
-    teams = await db.teams.find().sort("total_points", -1).to_list(length=None)
-    return [{"id": team["id"], "name": team["name"], "color": team["color"], "total_points": team["total_points"]} for team in teams]
 
 # Include the router in the main app
 app.include_router(api_router)
