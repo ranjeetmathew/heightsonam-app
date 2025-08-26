@@ -490,3 +490,39 @@ body {
   border: 1px solid rgba(34, 139, 34, 0.2);
   margin-bottom: 1rem;
 }
+
+/* Mobile Navigation Fix */
+.mobile-nav-item {
+  position: relative;
+  z-index: 10;
+  padding: 0.75rem 0.5rem;
+  border-radius: 12px;
+  transition: all 0.3s ease;
+  color: #8B4513;
+  font-weight: 500;
+  min-width: 80px;
+  text-align: center;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.mobile-nav-item:hover {
+  background: rgba(255, 107, 53, 0.1);
+  transform: translateY(-2px);
+}
+
+.mobile-nav-item.active {
+  background: linear-gradient(135deg, #FF6B35, #FFD700);
+  color: white;
+  box-shadow: 0 4px 15px rgba(255, 107, 53, 0.3);
+}
+
+.mobile-nav-container {
+  position: relative;
+  z-index: 10;
+  overflow-x: auto;
+  padding: 0.75rem 0;
+  display: flex;
+  gap: 0.5rem;
+  min-height: 80px;
+}
