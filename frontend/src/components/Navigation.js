@@ -54,7 +54,7 @@ const Navigation = ({ onLogout }) => {
         </div>
 
         {/* Mobile Navigation */}
-        <div className="md:hidden flex overflow-x-auto space-x-2 py-3">
+        <div className="md:hidden mobile-nav-container">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
@@ -63,7 +63,7 @@ const Navigation = ({ onLogout }) => {
               <Link
                 key={item.path}
                 to={item.path}
-                className={`nav-item flex flex-col items-center space-y-1 min-w-20 text-xs ${isActive ? 'active' : ''}`}
+                className={`mobile-nav-item flex flex-col items-center space-y-1 text-xs ${isActive ? 'active' : ''}`}
               >
                 <Icon size={16} />
                 <span>{item.label}</span>
