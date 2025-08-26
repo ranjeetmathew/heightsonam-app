@@ -1,8 +1,8 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, Users, Calendar, Trophy, Award, LogOut } from 'lucide-react';
+import { Home, Users, Calendar, Trophy, Award, LogOut, Crown } from 'lucide-react';
 
-const Navigation = ({ onLogout }) => {
+const Navigation = ({ isAdmin, onAdminLogout }) => {
   const location = useLocation();
 
   const navItems = [
@@ -44,13 +44,24 @@ const Navigation = ({ onLogout }) => {
             </div>
           </div>
 
-          <button
-            onClick={onLogout}
-            className="btn-secondary flex items-center space-x-2 px-4 py-2"
-          >
-            <LogOut size={18} />
-            <span>Logout</span>
-          </button>
+          <div className="flex items-center space-x-4">
+            {isAdmin && (
+              <div className="hidden md:flex items-center space-x-2 bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">
+                <Crown className="w-4 h-4" />
+                <span>Admin</span>
+              </div>
+            )}
+            
+            {isAdmin && (
+              <button
+                onClick={onAdminLogout}
+                className="btn-secondary flex items-center space-x-2 px-4 py-2"
+              >
+                <LogOut size={18} />
+                <span className="hidden md:inline">Logout</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Mobile Navigation */}
